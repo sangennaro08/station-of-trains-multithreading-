@@ -12,8 +12,8 @@
 
 using namespace std;
 
-int treni_in_entrata=50;
-constexpr int binari_disp=10;
+int treni_in_entrata=43;
+constexpr int binari_disp=20;
 double priority_threshold=40;
 int limit_of_starvation=3;
 
@@ -131,8 +131,18 @@ class StazioneTreni{
                 for(auto& treno : treni) media_starving += treno->starving;
 
                 media_starving /= treni.size();
-                if (media_starving > limit_of_starvation) limit_of_starvation *= media_starving/1.5;                   
-            }
+                
+                if (media_starving > limit_of_starvation) {
+                    double occ = controllo_treni_in_stazione.load() / binari_disp;
+                    double sat = media_starving / (1.0 + media_starving); // saturazione per outlier
+                    double factor = 1.0 + 0.15 * occ * sat; // aumento fino ~+15% in condizioni critiche
+
+                    int new_limit = max(limit_of_starvation, static_cast<int>(floor(limit_of_starvation * factor)));
+                    limit_of_starvation = new_limit;
+                    priority_threshold = min(priority_threshold * 1.01, 1000.0);
+                }
+
+        }        
             if(!binari.try_acquire())
             {   
                 {   
@@ -217,7 +227,7 @@ class StazioneTreni{
 
         for(auto& [id, treno] : treni_in_stazione)
         {
-            if( treno->priorita < t->priorita && !treno->scarica && treno->starving < t->starving)
+            if( (treno->priorita < t->priorita && !treno->scarica) || (treno->starving < t->starving && !treno->scarica))
             {   
                 returned_id=treno->ID;
                 controllo_arrivo_treno.notify_all();
@@ -277,6 +287,17 @@ class StazioneTreni{
             cout<<"----------------------------------------\n\n\n";
         }
     }  
+
+    void media_starving()
+    {
+        double media_starving = 0;
+        for(auto& treno : treni) media_starving += treno->starving;
+
+        media_starving /= treni.size();
+
+        cout<<"la media di starvation accumulata dai treni è di: "
+        <<media_starving<<"\n\n";
+    }
 };
 
 int main(){
@@ -296,7 +317,7 @@ int main(){
     stazione.join_threads();
     stazione.info_trains();
 
-    cout<<"\"limite\" starving finale:"<<limit_of_starvation<<"\n";
+    stazione.media_starving();
 
     return 0;
 }
