@@ -6,16 +6,15 @@
 #include <memory>
 #include <chrono>
 #include <condition_variable>
-#include <atomic>
 #include <random>
 #include <unordered_map>
 
 using namespace std;
 
-int treni_in_entrata=43;
+int treni_in_entrata=80;
 constexpr int binari_disp=20;
 double priority_threshold=40;
-int limit_of_starvation=3;
+double limit_of_starvation=20;
 
 mutex scrittura_info;
 mutex continua_main;
@@ -26,8 +25,8 @@ condition_variable continua;
 condition_variable controllo_arrivo_treno;
 condition_variable treno_spostato;
 
-atomic <int> controllo_treni_in_stazione=0;
-atomic <int> treni_completati=0;
+int controllo_treni_in_stazione=0;
+int treni_completati=0;
 int returned_id=-1;
 
 void controllo_var_globali();
@@ -84,7 +83,7 @@ class StazioneTreni{
 
     void inizializza_treni()
     {
-        for(int i=0;i<treni.size();i++)
+        for(int i=0; i<treni.size(); i++)
             treni.at(i)->th=thread(&StazioneTreni::controlla_treni_in_stazione,this,treni.at(i));
     }
 
@@ -96,7 +95,7 @@ class StazioneTreni{
                  << t->vagoni << " vagoni, priorita: " << t->priorita << ")\n\n";
         }
         
-        this_thread::sleep_for(chrono::seconds(t->tempo_di_arrivo));
+        this_thread::sleep_for(chrono::seconds(t->tempo_di_arrivo + t->tempo_giro_largo));
     }
 
     void controlla_treni_in_stazione(shared_ptr<Treno> t)
@@ -106,8 +105,8 @@ class StazioneTreni{
             {
                 lock_guard<mutex> lock0(controllo_priorita);
 
-                if( (t->priorita>priority_threshold && controllo_treni_in_stazione==binari_disp) || 
-                    (t->starving>=limit_of_starvation && controllo_treni_in_stazione==binari_disp))
+                if( (t->priorita > priority_threshold && controllo_treni_in_stazione == binari_disp) || 
+                    (t->starving >= limit_of_starvation && controllo_treni_in_stazione == binari_disp))
                 {   
 
                     find_first_candidate(t);
@@ -127,22 +126,8 @@ class StazioneTreni{
                     }
                 }
 
-                double media_starving = 0;
-                for(auto& treno : treni) media_starving += treno->starving;
-
-                media_starving /= treni.size();
-                
-                if (media_starving > limit_of_starvation) {
-                    double occ = controllo_treni_in_stazione.load() / binari_disp;
-                    double sat = media_starving / (1.0 + media_starving); // saturazione per outlier
-                    double factor = 1.0 + 0.15 * occ * sat; // aumento fino ~+15% in condizioni critiche
-
-                    int new_limit = max(limit_of_starvation, static_cast<int>(floor(limit_of_starvation * factor)));
-                    limit_of_starvation = new_limit;
-                    priority_threshold = min(priority_threshold * 1.01, 1000.0);
-                }
-
-        }        
+                modify_limit_of_starvation();
+            }        
             if(!binari.try_acquire())
             {   
                 {   
@@ -150,9 +135,9 @@ class StazioneTreni{
 
                     cout<<"il treno con ID "<<t->ID
                     <<" deve fare un giro largo,stazione piena\n\n";
-                    t->tempo_giro_largo+=2;
-                    t->starving +=1;//= min(t->starving + 1, limit_of_starvation);
-                    t->priorita=t->vagoni*t->tempo_di_arrivo + 2* t->starving;     
+                    t->tempo_giro_largo += 2;
+                    t->starving += 1;//= min(t->starving + 1, limit_of_starvation);
+                    t->priorita = t->vagoni * t->tempo_di_arrivo + 2 * t->starving;     
                 }
                 continue;
 
@@ -176,8 +161,8 @@ class StazioneTreni{
                         lock_guard<mutex> lock(controllo_priorita);
                         t->scarica = false;
                         controllo_treni_in_stazione--;   
-                        t->tempo_giro_largo+=2;
-                        t->priorita=t->vagoni*t->tempo_di_arrivo + 4* t->starving;
+                        t->tempo_giro_largo += 2;
+                        t->priorita = t->vagoni * t->tempo_di_arrivo + 4 * t->starving;
                         //priority_threshold *= 1.01; // aumenta la soglia di priorità del 0.1%
                     }
                     continue;                 
@@ -186,7 +171,7 @@ class StazioneTreni{
                 inizio_scarico_merci(t);
                 binari.release();
 
-                if(treni_completati>=treni_in_entrata)continua.notify_one();
+                if(treni_completati >= treni_in_entrata)continua.notify_one();
                 return;
             }
         }
@@ -221,6 +206,34 @@ class StazioneTreni{
         }
     }
 
+    bool controll_priorities(shared_ptr<Treno> t)
+    {
+        unique_lock<mutex> lock(returned_id_mutex);
+        bool selezionato = controllo_arrivo_treno.wait_for(
+        lock,
+        chrono::seconds(6),
+        [&]{ return returned_id == t->ID;}
+        );
+
+        if(selezionato && returned_id == t->ID)
+        {
+            {   
+                lock_guard<mutex> lock(scrittura_info);
+                cout<<"il treno con ID "<<t->ID
+                <<" VA VIA per lasciare il posto a un treno con priorità piu elevata\n\n";
+            }
+
+            t->starving += 1;
+            returned_id = -1;
+            treno_spostato.notify_one();
+            binari.release();
+            treni_in_stazione.erase(t->ID);//erase_from_station(t);
+
+            return true;
+        }    
+        return false;
+    }
+
     void find_first_candidate(shared_ptr<Treno> t)
     {
         lock_guard<mutex> lock(returned_id_mutex);
@@ -239,33 +252,35 @@ class StazioneTreni{
                 break;
             }
         }
-    }    
-    bool controll_priorities(shared_ptr<Treno> t)
+    }
+
+        void media_starving()
     {
-        unique_lock<mutex> lock(returned_id_mutex);
-        bool selezionato = controllo_arrivo_treno.wait_for(
-        lock,
-        chrono::seconds(6),
-        [&]{ return returned_id == t->ID;}
-        );
+        double media_starving = 0;
+        for(auto& treno : treni) media_starving += treno->starving;
 
-        if(selezionato && returned_id==t->ID)
-        {
-            {   
-                lock_guard<mutex> lock(scrittura_info);
-                cout<<"il treno con ID "<<t->ID
-                <<" VA VIA per lasciare il posto a un treno con priorità piu elevata\n\n";
-            }
+        media_starving /= treni.size();
 
-            t->starving +=1;
-            returned_id=-1;
-            treno_spostato.notify_one();
-            binari.release();
-            treni_in_stazione.erase(t->ID);//erase_from_station(t);
+        cout<<"la media di starvation accumulata dai treni è di: "
+        <<media_starving<<"\n\n";
+    }
 
-            return true;
-        }    
-        return false;
+    void modify_limit_of_starvation()
+    {
+        double media_starving = 0;
+        for(auto& treno : treni) media_starving += treno->starving;
+
+        media_starving /= treni.size();
+                
+        if (media_starving > limit_of_starvation) {
+            double occ = controllo_treni_in_stazione / binari_disp;
+            double sat = media_starving / (1.0 + media_starving); // saturazione per outlier
+            double factor = 1.0 + 0.15 * occ * sat; // aumento fino ~+15% in condizioni critiche
+
+            int new_limit = max(static_cast<int>(limit_of_starvation), static_cast<int>(floor(limit_of_starvation * factor)));
+            limit_of_starvation = new_limit;
+            priority_threshold = min(priority_threshold * 1.01, 1000.0);
+        }
     }
     
     void join_threads()
@@ -287,17 +302,6 @@ class StazioneTreni{
             cout<<"----------------------------------------\n\n\n";
         }
     }  
-
-    void media_starving()
-    {
-        double media_starving = 0;
-        for(auto& treno : treni) media_starving += treno->starving;
-
-        media_starving /= treni.size();
-
-        cout<<"la media di starvation accumulata dai treni è di: "
-        <<media_starving<<"\n\n";
-    }
 };
 
 int main(){
@@ -342,5 +346,4 @@ void controllo_var_globali(){
         limit_of_starvation=3;
         cout<<"il \"limite\" di starvation era troppo basso,ora è stato impostato a 3\n\n";
     }
-
 }
