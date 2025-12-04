@@ -26,8 +26,11 @@ LIBRERIE IMPORTATE:
 
 per il funzionamento dei thread:
 1)<thread>
+
 2)<mutex>
+
 3)<condition_variable>
+
 4)<semaphore>
 
 per la simulazione dello scarico merci:
@@ -38,7 +41,9 @@ per il settaggio di variabili dei treni con valore randomico (vagoni,tempo di ar
 
 per lavorare con strutture dati e puntatori:
 1)<memory>
+
 2)<vector>
+
 3)<unordered_map> (hash table)
 
 ---------------------------------------------------------------------------------------------
