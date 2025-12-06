@@ -91,8 +91,8 @@ class StazioneTreni{
         // Simula arrivo
         {
             lock_guard<mutex> lock(scrittura_info);
-            cout << "Treno " << t->ID << " arrivera in " << t->tempo_di_arrivo << " secondi (" 
-                 << t->vagoni << " vagoni, priorita: " << t->priorita << ")\n\n";
+            cout << "Treno " << t->ID << " arrivera in " << t->tempo_di_arrivo + t->tempo_giro_largo << " secondi (" 
+                 << t->vagoni << " vagoni, priorita: " << t->priorita <<")\n\n";
         }
         
         this_thread::sleep_for(chrono::seconds(t->tempo_di_arrivo + t->tempo_giro_largo));
@@ -347,3 +347,4 @@ void controllo_var_globali(){
         cout<<"il \"limite\" di starvation era troppo basso,ora è stato impostato a 3\n\n";
     }
 }
+
