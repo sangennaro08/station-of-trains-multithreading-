@@ -11,10 +11,10 @@
 
 using namespace std;
 
-int treni_in_entrata=80;
-constexpr int binari_disp=20;
-double priority_threshold=40;
-double limit_of_starvation=20;
+int treni_in_entrata=140;
+constexpr int binari_disp=15;
+double priority_threshold=30;
+double limit_of_starvation=3;
 
 mutex scrittura_info;
 mutex continua_main;
@@ -42,6 +42,7 @@ class Treno{
     int tempo_di_arrivo;
     int tempo_giro_largo=0;
     bool scarica=false;
+    bool entrata_di_priorita=false;
 
     double priorita;
     int starving=0;
@@ -91,8 +92,8 @@ class StazioneTreni{
         // Simula arrivo
         {
             lock_guard<mutex> lock(scrittura_info);
-            cout << "Treno " << t->ID << " arrivera in " << t->tempo_di_arrivo + t->tempo_giro_largo << " secondi (" 
-                 << t->vagoni << " vagoni, priorita: " << t->priorita <<")\n\n";
+            cout << "Treno " << t->ID << " arrivera in " << t->tempo_di_arrivo << " secondi (" 
+                 << t->vagoni << " vagoni, priorita: " << t->priorita << ")\n\n";
         }
         
         this_thread::sleep_for(chrono::seconds(t->tempo_di_arrivo + t->tempo_giro_largo));
@@ -112,16 +113,15 @@ class StazioneTreni{
                     find_first_candidate(t);
 
                     if (returned_id != -1)
-                    {
+                    {   
+                        t->entrata_di_priorita=true;
                         // Attendi che il selezionato resetti returned_id (cioè che vada via)
                         //si evita anche che nel mutex principale ci siano 2 treni diversi che richiedono uno singolo nella stazione
                         //di andarsene contemporaneamente
                         {
                             unique_lock<mutex> lock(returned_id_mutex);
-                            bool ok = treno_spostato.wait_for(
-                            lock, chrono::seconds(6),
-                            [&]{ return returned_id == -1; }
-                            );
+                            bool ok = treno_spostato.wait_for(lock, chrono::seconds(6),
+                            [&]{ return returned_id == -1;});
                         }
                     }
                 }
@@ -200,6 +200,7 @@ class StazioneTreni{
             lock_guard<mutex> lock(controllo_priorita);
                     
             t->scarica=false;
+            t->entrata_di_priorita=false;
             controllo_treni_in_stazione--;
             treni_completati++;
             treni_in_stazione.erase(t->ID);//erase_from_station(t);
@@ -240,7 +241,8 @@ class StazioneTreni{
 
         for(auto& [id, treno] : treni_in_stazione)
         {
-            if( (treno->priorita < t->priorita && !treno->scarica) || (treno->starving < t->starving && !treno->scarica))
+            if( (treno->priorita < t->priorita && !treno->scarica && !treno->entrata_di_priorita) || 
+                (treno->starving < t->starving && !treno->scarica && !treno->entrata_di_priorita))
             {   
                 returned_id=treno->ID;
                 controllo_arrivo_treno.notify_all();
@@ -254,7 +256,7 @@ class StazioneTreni{
         }
     }
 
-        void media_starving()
+    void media_starving()
     {
         double media_starving = 0;
         for(auto& treno : treni) media_starving += treno->starving;
@@ -347,4 +349,3 @@ void controllo_var_globali(){
         cout<<"il \"limite\" di starvation era troppo basso,ora è stato impostato a 3\n\n";
     }
 }
-
