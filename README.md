@@ -18,7 +18,7 @@ ARCHITETTURA DEL SISTEMA:
 
 COMPONENTI PRINCIPALI:
 Classe Treno:rappresenta di fatto un treno,con variabili di priorità .
-Classe Stazione Treno:rappresenta la stazione dei treni dove loro stimoleranno i loro
+Classe Stazione Treno:rappresenta la stazione dei treni dove loro simuleranno i loro
 cambiamenti di stato.
 mutex,semafori e condition variables:utilizzati per far coordinare e comunicare i vari
 Thread-treno.
@@ -82,9 +82,12 @@ Se la media starving dei treni è più alta della media la aumentiamo all'incirc
 assieme ad un leggero aumento dell’indicatore della priorità.
 
 STRUTTURE DATI UTILIZZATI PER IL SOFTWARE:
-treni: all'interno tutti i treni del programma.
-treni in stazione:contiene tutti i treni che sono presenti in stazione,ha una lunghezza
+treni: un vettore dove all'interno tutti i treni del programma.
+treni in stazione: hash table che contiene tutti i treni che sono presenti in stazione,ha una lunghezza
 massima SEMPRE PARI ai binari della stazione.
+Perchè si vuole utilizzare un hash-table(unordered map)?
+quando DEVE essere tolto un treno o aggiunto in certi casi se avessimo usato il vettore dovevamo iterare per trovare il treno da togliere perdendo tempo.Invece l'utlizzo xi un hash-table ha un tempo costante O(1) grazie all'utilizzo e ritrovamento di chiave-valore.
+CONTRO:memoria...un hash-table utilizza piú memoria rispetto a un vettore visto che ha overhead e bucket per il suo funzionamento MA questa memoria se comparata al suo utilizzo in una situazione con molti treni dai 300+ è irrilevante,visto che gia gli oggetti dichiarati hanno gia utilizzato una grande quatitá di memoria che se comparata a quella di un hash-table è di 100 se non 300 volte piu grande.
 
 TEST EFFETTUATI:
 1)Molti treni,pochi binari.
