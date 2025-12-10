@@ -114,8 +114,7 @@ class StazioneTreni{
                 lock_guard<mutex> lock0(controllo_priorita);
 
                 //controlliamo se il treno è di alta priorità
-                if( (t->priorita > priority_threshold && controllo_treni_in_stazione == binari_disp) || 
-                    (t->starving >= limit_of_starvation && controllo_treni_in_stazione == binari_disp))
+                if((t->priorita > priority_threshold || t->starving >= limit_of_starvation) && (controllo_treni_in_stazione == binari_disp))
                 {   
 
                     //trova il primo candiato da cacciare dalla stazione
@@ -262,8 +261,8 @@ class StazioneTreni{
 
         for(auto& [id, treno] : treni_in_stazione)
         {
-            if( (treno->priorita < t->priorita && !treno->scarica && !treno->entrata_di_priorita) || 
-                (treno->starving < t->starving && !treno->scarica && !treno->entrata_di_priorita))
+            if((treno->priorita < t->priorita || treno->starving < t->starving) &&
+                (!treno->scarica && !treno->entrata_di_priorita))
             {   
                 returned_id=treno->ID;
                 controllo_arrivo_treno.notify_all();
